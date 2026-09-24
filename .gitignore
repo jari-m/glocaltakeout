@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+dist/
+*.egg-info/
+.coverage
+htmlcov/
+glocaltakeout.sqlite
+*.sqlite-journal
+report.json
+albums-pending.json

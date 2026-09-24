@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "glocaltakeout"
+version = "0.1.0"
+description = "Merge a Google Takeout photo export into a gphotos-sync library folder."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Jari" }]
+dependencies = ["piexif>=1.1.3"]
+
+[project.scripts]
+glocaltakeout = "glocaltakeout.cli:main"
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
