@@ -51,6 +51,27 @@ SQLite locking on a Samba share can corrupt a database that stays open there. A 
 
 Album entries are relative symlinks. That works on Linux and on WSL. On Windows 10 and 11, creating a symlink needs Developer Mode or an elevated process. On a Samba share, the client mount needs `mfsymlinks` (or the server must store real symlinks). The target path must already be visible to the operating system: a drive letter, a UNC path, a WSL `/mnt/...` path, or a mounted share. The tool does not speak SMB itself.
 
+Windows can open `\\fileserver\drivename` directly. WSL does not see that path until you mount it. This uses the Windows connection you already have, so there is no second Samba login:
+
+```bash
+sudo mkdir -p /mnt/drivename
+sudo mount -t drvfs '\\fileserver\drivename' /mnt/drivename
+ls /mnt/drivename
+```
+
+`ls` should show the library root, including `photos/`. A dry run then uses `--library /mnt/drivename`. When you are finished:
+
+```bash
+sudo umount /mnt/drivename
+```
+
+This mount is for reading and copying files. It does not create album symlinks. If `drvfs` cannot find `fileserver`, map the share to a drive letter in Windows first (`net use Z: \\fileserver\drivename`) and mount that letter instead:
+
+```bash
+sudo mkdir -p /mnt/drivename
+sudo mount -t drvfs 'Z:' /mnt/drivename
+```
+
 ## macOS
 
 The defaults stay as they are for Windows, WSL, and Linux. On a Mac, pass the options that match the disk you are writing to.
