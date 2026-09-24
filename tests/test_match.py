@@ -1,4 +1,5 @@
 import sqlite3
+import unicodedata
 from datetime import datetime
 from pathlib import Path
 
@@ -80,6 +81,18 @@ def test_case_insensitive_name_match(tmp_path: Path):
     placement = place_item(item, index, case_insensitive=True)
     assert placement.action == "keep_both"
     assert placement.relative_path.name == "IMG (1).jpg"
+
+
+def test_nfc_option_matches_a_decomposed_filename(tmp_path: Path):
+    composed = "café.jpg"
+    decomposed = unicodedata.normalize("NFD", composed)
+    assert composed != decomposed
+    _library(tmp_path, {f"photos/2024/06/{decomposed}": b"already-there"})
+    index = DestinationIndex(tmp_path)
+    item = _item(composed, b"takeout-bytes", datetime(2024, 6, 1, 12, 0), "c" * 64)
+    placement = place_item(item, index, normalize_nfc=True)
+    assert placement.relative_path.name == "café (1).jpg"
+    assert unicodedata.is_normalized("NFC", placement.relative_path.name)
 
 
 def test_unrelated_filename_clash_is_reported_separately(tmp_path: Path):

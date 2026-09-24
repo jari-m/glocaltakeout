@@ -8,6 +8,7 @@ from pathlib import Path
 
 from glocaltakeout.index import DestinationIndex, IndexedFile
 from glocaltakeout.layout import (
+    canonical_name,
     duplicate_filename,
     next_duplicate_filename,
     photo_relative_dir,
@@ -27,8 +28,9 @@ class Placement:
     reason: str
 
 
-def _fold(name: str, case_insensitive: bool) -> str:
-    return name.casefold() if case_insensitive else name
+def _fold(name: str, case_insensitive: bool, normalize_nfc: bool = False) -> str:
+    text = canonical_name(name, normalize_nfc=normalize_nfc)
+    return text.casefold() if case_insensitive else text
 
 
 def _same_capture(left: datetime | None, right: datetime | None) -> bool:
@@ -46,17 +48,20 @@ def place_item(
     index: DestinationIndex,
     *,
     case_insensitive: bool = False,
+    normalize_nfc: bool = False,
 ) -> Placement:
     """Choose skip, keep-both, or a new ``photos/YYYY/MM`` path."""
     existing = index.by_hash(item.sha256)
     if existing is not None:
         return Placement("skip_identical", existing.relative_path, "identical bytes")
 
-    wanted = _fold(item.filename, case_insensitive)
+    filename = canonical_name(item.filename, normalize_nfc=normalize_nfc)
+    item.filename = filename
+    wanted = _fold(filename, case_insensitive, normalize_nfc)
     same_capture_files = [
         record
         for record in index.files()
-        if _fold(record.original_name, case_insensitive) == wanted
+        if _fold(record.original_name, case_insensitive, normalize_nfc) == wanted
         and _same_capture(record.captured, item.taken)
     ]
     if same_capture_files:
@@ -65,6 +70,7 @@ def place_item(
             item.filename,
             index.names_in_dir(folder),
             case_insensitive=case_insensitive,
+            normalize_nfc=normalize_nfc,
         )
         return Placement(
             "keep_both",
@@ -80,10 +86,11 @@ def place_item(
         item.filename,
         index.names_in_dir(folder),
         case_insensitive=case_insensitive,
+        normalize_nfc=normalize_nfc,
     )
     if number == 0:
         return Placement("new_file", folder / filename, "not in the library")
-    clash = _conflicting_name(index, folder, item, case_insensitive)
+    clash = _conflicting_name(index, folder, item, case_insensitive, normalize_nfc)
     if clash:
         return Placement("name_clash", folder / filename, "different capture, same filename")
     return Placement("new_file", _with_number(folder, item.filename, number), "not in the library")
@@ -94,11 +101,12 @@ def _conflicting_name(
     folder: Path,
     item: TakeoutItem,
     case_insensitive: bool,
+    normalize_nfc: bool = False,
 ) -> IndexedFile | None:
-    wanted = _fold(item.filename, case_insensitive)
+    wanted = _fold(item.filename, case_insensitive, normalize_nfc)
     for record in index.files():
         if record.relative_path.parent != folder and record.relative_path.parent.as_posix() != folder.as_posix():
             continue
-        if _fold(record.original_name, case_insensitive) == wanted:
+        if _fold(record.original_name, case_insensitive, normalize_nfc) == wanted:
             return record
     return None

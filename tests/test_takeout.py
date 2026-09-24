@@ -4,6 +4,7 @@ from datetime import datetime
 from pathlib import Path
 
 from glocaltakeout.takeout import (
+    expand_takeout_parts,
     is_year_bucket,
     load_takeout,
     match_sidecar_name,
@@ -58,6 +59,19 @@ def test_truncated_supplemental_name_matches_long_filename():
     long_media = "holiday-photo-with-a-very-long-name.jpg"
     assert match_sidecar_name(media, [shortened]) == shortened
     assert match_sidecar_name(long_media, [stem_cut]) == stem_cut
+
+
+def test_first_zip_part_includes_numbered_siblings(tmp_path: Path):
+    names = [
+        "takeout-20260924T153744Z-1-001.zip",
+        "takeout-20260924T153744Z-1-002.zip",
+        "takeout-20260924T153744Z-1-005.zip",
+        "other-export-1-001.zip",
+    ]
+    for name in names:
+        (tmp_path / name).write_bytes(b"")
+    expanded = expand_takeout_parts([tmp_path / names[0]])
+    assert [path.name for path in expanded] == names[:3]
 
 
 def test_finnish_layout_classifies_folders_and_dedupes_album_copy(tmp_path: Path):

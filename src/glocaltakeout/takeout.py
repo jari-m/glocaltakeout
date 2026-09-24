@@ -445,8 +445,54 @@ def _merge_occurrences(occurrences: list[MediaOccurrence]) -> list[TakeoutItem]:
     return items
 
 
+# takeout-20260924T153744Z-1-001.zip -> prefix "takeout-20260924T153744Z-1-", part "001"
+_PART_NAME = re.compile(r"^(?P<prefix>.*-)(?P<number>\d{3})\.zip$", re.IGNORECASE)
+
+
+def expand_takeout_parts(paths: list[Path]) -> list[Path]:
+    """Include every numbered sibling when one Takeout part is named.
+
+    ``takeout-...-001.zip`` also selects ``-002.zip`` through ``-999.zip`` in
+    the same directory, for the parts that exist. A directory, or a zip whose
+    name does not end in ``-NNN.zip``, is used as given.
+    """
+    selected: list[Path] = []
+    seen: set[str] = set()
+
+    def add(path: Path) -> None:
+        marker = f"{path.parent}/{path.name.casefold()}"
+        if marker in seen:
+            return
+        seen.add(marker)
+        selected.append(path)
+
+    for path in paths:
+        match = _PART_NAME.match(path.name)
+        if path.is_dir() or match is None:
+            add(path)
+            continue
+        prefix = match.group("prefix").casefold()
+        siblings: list[Path] = []
+        if path.parent.exists():
+            for entry in path.parent.iterdir():
+                entry_match = _PART_NAME.match(entry.name)
+                if (
+                    entry.is_file()
+                    and entry_match is not None
+                    and entry_match.group("prefix").casefold() == prefix
+                ):
+                    siblings.append(entry)
+        siblings.sort(key=lambda item: item.name.casefold())
+        if not siblings:
+            add(path)
+            continue
+        for sibling in siblings:
+            add(sibling)
+    return selected
+
+
 def load_takeout(paths: list[Path]) -> list[TakeoutItem]:
-    library = TakeoutLibrary(paths)
+    library = TakeoutLibrary(expand_takeout_parts(paths))
     return library.index()
 
 

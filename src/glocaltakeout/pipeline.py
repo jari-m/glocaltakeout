@@ -12,10 +12,10 @@ from typing import Iterator
 
 from glocaltakeout.albums import AlbumLink, link_album_file, write_pending
 from glocaltakeout.index import DestinationIndex, GphotosHint, IndexedFile, hash_file
-from glocaltakeout.layout import split_duplicate_name
+from glocaltakeout.layout import canonical_name, split_duplicate_name
 from glocaltakeout.match import Placement, place_item
 from glocaltakeout.metadata import apply_new_file_metadata
-from glocaltakeout.takeout import TakeoutItem, load_takeout
+from glocaltakeout.takeout import TakeoutItem, expand_takeout_parts, load_takeout
 
 
 @dataclass(frozen=True)
@@ -64,6 +64,7 @@ def run(
     report_path: Path | None = None,
     gphotos_db: Path | None = None,
     case_insensitive: bool | None = None,
+    normalize_filenames: str | None = None,
 ) -> Iterator[Progress]:
     """Index Takeout and the library, then copy and link when ``apply`` is set.
 
@@ -72,6 +73,10 @@ def run(
     """
     if case_insensitive is None:
         case_insensitive = os.name == "nt"
+    normalize_nfc = normalize_filenames == "nfc"
+    sources = expand_takeout_parts(sources)
+    if len(sources) > 1:
+        yield Progress("scanned", f"Reading {len(sources)} Takeout parts")
     items = load_takeout(sources)
     yield Progress("scanned", f"Indexed {len(items)} unique Takeout files")
 
@@ -86,7 +91,12 @@ def run(
     warned_symlink = False
 
     for item in items:
-        placement = place_item(item, index, case_insensitive=case_insensitive)
+        if normalize_nfc:
+            item.filename = canonical_name(item.filename, normalize_nfc=True)
+            item.albums = [canonical_name(title, normalize_nfc=True) for title in item.albums]
+        placement = place_item(
+            item, index, case_insensitive=case_insensitive, normalize_nfc=normalize_nfc
+        )
         record = {
             "filename": item.filename,
             "action": placement.action,
@@ -116,7 +126,9 @@ def run(
         target = library_root / placement.relative_path
         newest = item.taken or datetime(1970, 1, 1)
         for title in item.albums:
-            link = link_album_file(library_root, title, newest, target, apply=apply)
+            link = link_album_file(
+                library_root, title, newest, target, apply=apply, normalize_nfc=normalize_nfc
+            )
             if link.pending:
                 pending.append(link)
                 if not warned_symlink:

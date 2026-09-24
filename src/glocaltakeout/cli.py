@@ -48,6 +48,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Compare destination filenames without case. Default: on for Windows.",
     )
+    parser.add_argument(
+        "--normalize-filenames",
+        choices=("nfc",),
+        default=None,
+        help="Compare and write filenames in Unicode NFC. Use this on macOS. Default: off.",
+    )
     return parser
 
 
@@ -60,6 +66,7 @@ def main(argv: list[str] | None = None) -> int:
         report_path=args.report,
         gphotos_db=args.gphotos_db,
         case_insensitive=args.case_insensitive,
+        normalize_filenames=args.normalize_filenames,
     ):
         print(f"{event.kind}: {event.message}")
     return 0

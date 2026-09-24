@@ -20,7 +20,7 @@ class AlbumLink:
     pending: bool
 
 
-def find_album_dir(library_root: Path, title: str) -> Path | None:
+def find_album_dir(library_root: Path, title: str, *, normalize_nfc: bool = False) -> Path | None:
     """Return an existing album folder whose leaf name ends with ``title``."""
     root = library_root / ALBUMS_DIR
     if not root.exists():
@@ -28,15 +28,17 @@ def find_album_dir(library_root: Path, title: str) -> Path | None:
     matches = [
         path
         for path in root.rglob("*")
-        if path.is_dir() and folder_matches_album(path.name, title)
+        if path.is_dir() and folder_matches_album(path.name, title, normalize_nfc=normalize_nfc)
     ]
     if not matches:
         return None
     return sorted(matches, key=lambda path: path.as_posix())[0]
 
 
-def ensure_album_dir(library_root: Path, title: str, newest: datetime) -> Path:
-    found = find_album_dir(library_root, title)
+def ensure_album_dir(
+    library_root: Path, title: str, newest: datetime, *, normalize_nfc: bool = False
+) -> Path:
+    found = find_album_dir(library_root, title, normalize_nfc=normalize_nfc)
     if found is not None:
         return found
     created = library_root / album_relative_dir(title, newest)
@@ -59,12 +61,13 @@ def link_album_file(
     target: Path,
     *,
     apply: bool,
+    normalize_nfc: bool = False,
 ) -> AlbumLink:
     """Add one relative symlink. ``target`` is absolute or under ``library_root``."""
     album_dir = (
-        find_album_dir(library_root, title)
+        find_album_dir(library_root, title, normalize_nfc=normalize_nfc)
         if not apply
-        else ensure_album_dir(library_root, title, newest)
+        else ensure_album_dir(library_root, title, newest, normalize_nfc=normalize_nfc)
     )
     if album_dir is None:
         album_dir = library_root / album_relative_dir(title, newest)

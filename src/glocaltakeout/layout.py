@@ -9,6 +9,7 @@ reimplements that naming. It does not copy gphotos-sync source code.
 from __future__ import annotations
 
 import re
+import unicodedata
 from datetime import datetime
 from pathlib import Path
 
@@ -45,8 +46,16 @@ def duplicate_filename(original: str, number: int) -> str:
     return f"{path.stem} ({number}){path.suffix}"
 
 
-def _fold(name: str, case_insensitive: bool) -> str:
-    return name.casefold() if case_insensitive else name
+def canonical_name(name: str, *, normalize_nfc: bool) -> str:
+    """Return ``name`` in Unicode NFC when that option is on."""
+    if not normalize_nfc:
+        return name
+    return unicodedata.normalize("NFC", name)
+
+
+def _fold(name: str, case_insensitive: bool, normalize_nfc: bool = False) -> str:
+    text = canonical_name(name, normalize_nfc=normalize_nfc)
+    return text.casefold() if case_insensitive else text
 
 
 def next_duplicate_filename(
@@ -54,22 +63,24 @@ def next_duplicate_filename(
     existing_names: list[str] | tuple[str, ...],
     *,
     case_insensitive: bool = False,
+    normalize_nfc: bool = False,
 ) -> tuple[str, int]:
     """Pick the next free ``name (n).ext`` among names already in one folder.
 
     The original name uses number 0. The next file uses one more than the
     highest number already stored for that original name.
     """
-    wanted = _fold(original, case_insensitive)
+    composed = canonical_name(original, normalize_nfc=normalize_nfc)
+    wanted = _fold(composed, case_insensitive, normalize_nfc)
     highest: int | None = None
     for name in existing_names:
         current_original, number = split_duplicate_name(name)
-        if _fold(current_original, case_insensitive) == wanted:
+        if _fold(current_original, case_insensitive, normalize_nfc) == wanted:
             highest = number if highest is None else max(highest, number)
     if highest is None:
-        return original, 0
+        return composed, 0
     number = highest + 1
-    return duplicate_filename(original, number), number
+    return duplicate_filename(composed, number), number
 
 
 def album_relative_dir(title: str, newest: datetime) -> Path:
@@ -78,9 +89,10 @@ def album_relative_dir(title: str, newest: datetime) -> Path:
     return Path(ALBUMS_DIR) / f"{newest.year:04d}" / leaf
 
 
-def folder_matches_album(folder_name: str, title: str) -> bool:
+def folder_matches_album(folder_name: str, title: str, *, normalize_nfc: bool = False) -> bool:
     """True when a leaf folder is the album title, or ``MM Title`` from gphotos-sync."""
-    cleaned = title.strip()
+    cleaned = canonical_name(title.strip(), normalize_nfc=normalize_nfc)
+    folder_name = canonical_name(folder_name, normalize_nfc=normalize_nfc)
     if not cleaned:
         return False
     if folder_name == cleaned:

@@ -1,12 +1,12 @@
 # glocaltakeout
 
-`glocaltakeout` copies photos and videos from a Google Takeout export into a library folder that [gphotos-sync](https://github.com/gilesknap/gphotos-sync) already created. It adds files that are not already there and leaves the older copies in place.
+`glocaltakeout` copies photos and videos from a Google Takeout export into a library folder. The folder can be an existing [gphotos-sync](https://github.com/gilesknap/gphotos-sync) tree, or an empty directory. An empty directory has no earlier files to compare, so every Takeout file is copied and `photos/` and `albums/` are created in the gphotos-sync layout. `gphotos.sqlite` is not required.
 
 Requires Python 3.10 or newer. Developed and tested on 3.10.
 
 ## What it does
 
-gphotos-sync downloaded files through the Google Photos Library API. Google has discontinued that API, and those downloads were often re-encoded, with GPS removed. A Takeout export is a separate copy of the same shots, usually at the original quality, so the bytes do not match the files already on disk.
+gphotos-sync downloaded files through the Google Photos Library API. Google has discontinued that API, and those downloads were often re-encoded, with GPS removed. A Takeout export is a separate copy of the same shots, usually at the original quality, so the bytes may not match the files already on disk.
 
 For each unique file in the Takeout:
 
@@ -20,7 +20,7 @@ New copies get their taken time as the file modification time. JPEG files also g
 
 ## Folder layout
 
-This matches the [gphotos-sync folder layout](https://gilesknap-org.github.io/gphotos-sync/main/explanations/folders.html):
+This matches the [gphotos-sync folder layout](https://github.com/gilesknap/gphotos-sync/blob/main/docs/explanations/folders.rst):
 
 - Real files live in `photos/YYYY/MM/`.
 - A second file with the same original name in that folder is `name (n).ext`, with a space before the parenthesis.
@@ -32,8 +32,8 @@ An existing album folder whose name ends with the Takeout album title is reused.
 
 Folder names are not translated. The tool reads the archive shape:
 
-- The library root is the directory under `Takeout/` that holds the media. `Google Photos`, `Google Kuvat`, and other product-folder names are ignored. `archive_browser.html` is ignored.
-- A year bucket is a folder whose name ends in a four-digit year (`19xx` or `20xx`) and that has no album `metadata.json`. `Vuosi 2026` and `Photos from 2026` both match. A name such as `asuntomessut 2026 ja remontti-ideat` does not, because the year is not at the end.
+- The library root is the directory under `Takeout/` that holds the media. `Google Photos`, and other translated  product-folder names such as `Google Kuvat` (Finnish) are ignored. `archive_browser.html` is ignored.
+- A year bucket is a folder whose name ends in a four-digit year (`19xx` or `20xx`) and that has no album `metadata.json`.
 - Archive and trash come from sidecar JSON: `"archived": true` and `"trashed": true`. Archive files are copied into `photos/YYYY/MM/` but do not become an album. Trash files are not copied.
 - Every other folder is a user album. `metadata.json` supplies the title when the folder name was truncated.
 
@@ -51,6 +51,35 @@ SQLite locking on a Samba share can corrupt a database that stays open there. A 
 
 Album entries are relative symlinks. That works on Linux and on WSL. On Windows 10 and 11, creating a symlink needs Developer Mode or an elevated process. On a Samba share, the client mount needs `mfsymlinks` (or the server must store real symlinks). The target path must already be visible to the operating system: a drive letter, a UNC path, a WSL `/mnt/...` path, or a mounted share. The tool does not speak SMB itself.
 
+## macOS
+
+The defaults stay as they are for Windows, WSL, and Linux. On a Mac, pass the options that match the disk you are writing to.
+
+Install Python 3.10 or newer from Homebrew or python.org. macOS does not provide it. In Terminal:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+```
+
+A Finder-mounted share is a normal path under `/Volumes/`, for example `--library /Volumes/photos`.
+
+`--case-insensitive` compares `IMG.jpg` and `img.jpg` as the same name. Pass it when the library is on the Mac's internal disk or on an exFAT drive. Those volumes are case-insensitive. Do not pass it for the Raspberry share: that filesystem is case-sensitive, and the flag would treat two different names as one file.
+
+`--normalize-filenames nfc` compares and writes filenames in composed Unicode (NFC). Pass it on macOS. A Mac stores names such as `café.jpg` in a decomposed form, and Takeout uses the composed form. With this flag the two match, and a new file is written in the composed form so Linux still sees the usual name. Leave it off on Windows, WSL, and Linux.
+
+Album symlinks work on a local Mac disk. Finder's SMB client does not create Unix symlinks on a Samba share, so a run from a Mac against the Raspberry share copies the photos and lists the album links in `albums-pending.json`. Create those links later from Linux.
+
+```bash
+glocaltakeout ~/Downloads/takeout-20260924T153744Z-1-001.zip \
+  --library /Volumes/photos \
+  --case-insensitive \
+  --normalize-filenames nfc
+```
+
+Drop `--case-insensitive` when `--library` is the Raspberry share rather than a Mac disk.
+
 ## Usage
 
 Install in a virtual environment, then run a dry run before copying:
@@ -60,11 +89,13 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
 
-glocaltakeout /path/to/takeout-001.zip /path/to/takeout-002.zip --library /path/to/gphotos-root
-glocaltakeout /path/to/takeout-001.zip --library /path/to/gphotos-root --apply
+glocaltakeout /path/to/takeout-20260924T153744Z-1-001.zip --library /path/to/library
+glocaltakeout /path/to/takeout-20260924T153744Z-1-001.zip --library /path/to/library --apply
 ```
 
-Without `--apply` the run refreshes the index and writes a report, and it does not copy media or change `albums/`. `--report` sets the report path (default: `glocaltakeout-report.json` in the current directory). `--gphotos-db` points at `gphotos.sqlite` when it is not in the library root. `--case-insensitive` compares destination filenames without case; this is the default on Windows.
+Pass the first zip only. A name ending in `-001.zip` also includes `-002.zip` through `-999.zip` in that same directory, for every part that is actually there. You do not list each piece. A folder of already extracted files can be passed instead of a zip. `--library` is the folder that should contain `photos/` and `albums/`; it is created if needed, and it does not have to contain a previous gphotos-sync download.
+
+Without `--apply` the run refreshes the index and writes a report, and it does not copy media or change `albums/`. `--report` sets the report path (default: `glocaltakeout-report.json` in the current directory). `--gphotos-db` points at `gphotos.sqlite` when it is not in the library root. `--case-insensitive` compares destination filenames without case; this is the default on Windows. `--normalize-filenames nfc` compares and writes filenames in composed Unicode; it is off unless you set it. See the macOS section for when to pass each one.
 
 ## Tests
 
