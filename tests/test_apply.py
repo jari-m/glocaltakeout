@@ -1,4 +1,5 @@
 import json
+import sqlite3
 from datetime import datetime
 from pathlib import Path
 
@@ -66,6 +67,42 @@ def test_non_jpeg_gets_a_sidecar(tmp_path: Path):
     sidecar = json.loads((tmp_path / "clip.mp4.json").read_text(encoding="utf-8"))
     assert sidecar["description"] == "dock"
     assert sidecar["photoTakenTime"] == "2024-06-01T15:30:00"
+
+
+def test_scan_counts_files_beyond_gphotos_syncfiles(tmp_path: Path):
+    """SyncFiles can be shorter than photos/ after deletions from Google."""
+    library = tmp_path / "library"
+    folder = library / "photos" / "2020" / "01"
+    folder.mkdir(parents=True)
+    for number in range(101):
+        (folder / f"img{number}.png").write_bytes(b"x")
+    database = library / "gphotos.sqlite"
+    connection = sqlite3.connect(database)
+    connection.execute(
+        "CREATE TABLE SyncFiles (Path TEXT, FileName TEXT, OrigFileName TEXT, CreateDate TEXT)"
+    )
+    connection.execute(
+        "INSERT INTO SyncFiles VALUES ('photos/2020/01', 'img0.png', 'img0.png', '2020-01-01 00:00:00')"
+    )
+    connection.commit()
+    connection.close()
+    notes: list[tuple[int, int, str, str]] = []
+
+    def progress(step: int, steps: int, label: str, detail: str) -> None:
+        notes.append((step, steps, label, detail))
+
+    list(
+        run(
+            [],
+            library,
+            apply=False,
+            report_path=tmp_path / "report.json",
+            progress=progress,
+        )
+    )
+    details = [detail for step, _steps, label, detail in notes if label == "Scanning library"]
+    assert details.index("0 files") > details.index("100%")
+    assert details.index("100 files") > details.index("0 files")
 
 
 def test_dry_run_does_not_copy(tmp_path: Path):

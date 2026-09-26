@@ -79,7 +79,7 @@ The files under `photos/` and `albums/` are the source of truth. The tool also k
 
 SQLite locking on a Samba share can corrupt a database that stays open there. A run copies `glocaltakeout.sqlite` to a local temp file, works on the copy, and writes it back only when the run finishes. If the share copy is missing or unreadable, it is rebuilt from the files.
 
-`gphotos.sqlite` is optional and read-only. It can supply the capture time and the name gphotos-sync used, which avoids reading EXIF from every old file. It is not proof the file is still on disk, and its file sizes will not match Takeout originals. This tool does not write into `gphotos.sqlite`.
+`gphotos.sqlite` is optional and read-only. Capture times come from that file first. `gphotos.sqlite.previous` fills in files the latest database no longer lists, and a JPEG's own date is read only when both files miss it. A time already stored in `glocaltakeout.sqlite` is left as it is. The gphotos database is not proof the file is still on disk, and its file sizes will not match Takeout originals. This tool does not write into `gphotos.sqlite`.
 
 ## Symlinks, Windows, and network drives
 

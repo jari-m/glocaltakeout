@@ -119,10 +119,13 @@ def run(
     yield Progress("scanned", f"Indexed {len(items)} unique Takeout files")
 
     hint_path = gphotos_db if gphotos_db is not None else library_root / "gphotos.sqlite"
-    hint = GphotosHint(hint_path if hint_path.exists() else None)
+    # Pass the path even when the file is missing, so a sibling .previous
+    # database can still supply capture times.
+    hint = GphotosHint(hint_path)
     scanned = 0
-    # SyncFiles is one row per library file, so its count is a close stand-in
-    # for the photos/ walk before that walk has finished.
+    # SyncFiles only lists photos still known to the last gphotos-sync run.
+    # Photos removed from Google stay under photos/ and are missing from that
+    # count, so past the count we report how many further files have been seen.
     scan_estimate = hint.file_count
 
     counting = scan_estimate is None
@@ -130,13 +133,29 @@ def run(
     def on_scan(seen: int) -> None:
         nonlocal scanned
         scanned = seen
-        note(2, "Scanning library", seen, scan_estimate, as_count=counting, every=50)
+        if scan_estimate is None:
+            note(2, "Scanning library", seen, None, as_count=True, every=50)
+            return
+        if seen <= scan_estimate:
+            note(2, "Scanning library", seen, scan_estimate)
+            return
+        extra = seen - scan_estimate
+        if extra != 1 and extra % 100 != 0:
+            return
+        note(2, "Scanning library", (extra // 100) * 100, None, as_count=True)
+
+    dated = False
+
+    def on_dates(current: int, total: int) -> None:
+        nonlocal dated
+        dated = True
+        note(2, "Reading capture times", current, total)
 
     note(2, "Scanning library", 0, scan_estimate, as_count=counting)
-    index = DestinationIndex(library_root, hint, on_scan=on_scan)
+    index = DestinationIndex(library_root, hint, on_scan=on_scan, on_dates=on_dates)
     if scanned:
         note(2, "Scanning library", scanned, scanned)
-    else:
+    elif not dated:
         note(2, "Scanning library", 1, 1)
     note(3, "Hashing library files", 0, None)
 

@@ -16,6 +16,7 @@ from datetime import datetime
 from pathlib import Path
 
 from glocaltakeout.layout import PHOTOS_DIR, split_duplicate_name
+from glocaltakeout.metadata import read_jpeg_date
 from glocaltakeout.takeout import is_media_name
 
 _SCHEMA = """
@@ -77,38 +78,52 @@ def hash_file(path: Path) -> str:
 
 
 class GphotosHint:
-    """Read-only capture times and names from a gphotos-sync database."""
+    """Read-only capture times from a gphotos-sync database.
+
+    Rows in ``path`` win. ``path`` with ``.previous`` appended supplies times
+    for files the latest database no longer lists. ``file_count`` stays the
+    current database's row count, because that is only a progress hint.
+    """
 
     def __init__(self, path: Path | None):
         self.by_path: dict[tuple[str, str], datetime] = {}
         self.file_count: int | None = None
-        if path is None or not path.exists():
+        if path is None:
             return
+        if path.exists():
+            self._read(path, fill_count=True)
+        previous = path.with_name(path.name + ".previous")
+        if previous.exists():
+            self._read(previous, fill_count=False)
+
+    def _read(self, path: Path, *, fill_count: bool) -> None:
         local = Path(tempfile.mkdtemp(prefix="gphotos-hint-")) / "gphotos.sqlite"
-        shutil.copy2(path, local)
+        try:
+            shutil.copy2(path, local)
+        except OSError:
+            return
         uri = local.resolve().as_uri() + "?mode=ro"
         try:
             connection = sqlite3.connect(uri, uri=True)
-        except sqlite3.Error:
-            return
-        try:
             rows = connection.execute(
                 "SELECT Path, FileName, OrigFileName, CreateDate FROM SyncFiles"
             )
         except sqlite3.Error:
-            connection.close()
             return
         for folder, filename, _original, created in rows:
             captured = _parse_captured(None if created is None else str(created))
             if captured is None or not filename:
                 continue
             folder_text = "" if folder is None else str(folder).replace("\\", "/").strip("/")
-            self.by_path[(folder_text, str(filename))] = captured
-        try:
-            counted = connection.execute("SELECT COUNT(*) FROM SyncFiles").fetchone()
-            self.file_count = int(counted[0]) if counted and counted[0] else None
-        except sqlite3.Error:
-            self.file_count = None
+            key = (folder_text, str(filename))
+            if key not in self.by_path:
+                self.by_path[key] = captured
+        if fill_count:
+            try:
+                counted = connection.execute("SELECT COUNT(*) FROM SyncFiles").fetchone()
+                self.file_count = int(counted[0]) if counted and counted[0] else None
+            except sqlite3.Error:
+                self.file_count = None
         connection.close()
 
     def captured(self, relative_dir: Path, filename: str) -> datetime | None:
@@ -119,11 +134,12 @@ class GphotosHint:
 class DestinationIndex:
     """Working copy of the library index. Call ``publish`` to store it on the share."""
 
-    def __init__(self, library_root: Path, hint: GphotosHint | None = None, on_scan=None):
+    def __init__(self, library_root: Path, hint: GphotosHint | None = None, on_scan=None, on_dates=None):
         self.library_root = library_root
         self.share_db = library_root / "glocaltakeout.sqlite"
         self.hint = hint or GphotosHint(None)
         self._on_scan = on_scan
+        self._on_dates = on_dates
         self._temp = tempfile.TemporaryDirectory(prefix="glocaltakeout-index-")
         self.local_db = Path(self._temp.name) / "glocaltakeout.sqlite"
         self.rebuilt = False
@@ -135,10 +151,12 @@ class DestinationIndex:
             try:
                 connection = sqlite3.connect(self.local_db)
                 connection.execute("SELECT source_sha256 FROM files LIMIT 1")
-                return connection
             except sqlite3.DatabaseError:
                 if self.local_db.exists():
                     self.local_db.unlink()
+            else:
+                self._fill_missing_capture_times(connection)
+                return connection
         connection = sqlite3.connect(self.local_db)
         connection.executescript(_SCHEMA)
         self.rebuilt = True
@@ -158,7 +176,7 @@ class DestinationIndex:
                 self._on_scan(seen)
             relative = path.relative_to(self.library_root)
             original, number = split_duplicate_name(path.name)
-            captured = self.hint.captured(relative.parent, path.name)
+            captured = self._lookup_captured(relative.parent, path.name, path)
             connection.execute(
                 """
                 INSERT OR REPLACE INTO files
@@ -171,9 +189,49 @@ class DestinationIndex:
                     original,
                     number,
                     path.stat().st_size,
-                    _format_captured(captured),
+                    captured,
                 ),
             )
+        connection.commit()
+
+    def _lookup_captured(self, relative_dir: Path, filename: str, path: Path) -> str | None:
+        """Return an ISO capture time, or ``""`` when this file has none.
+
+        An empty string means the lookup already ran. A later run then skips
+        the file instead of reading it from the share again. ``None`` means
+        the file could not be read, so the row stays unset and will be tried
+        again.
+        """
+        found = self.hint.captured(relative_dir, filename)
+        if found is None and path.suffix.lower() in {".jpg", ".jpeg"}:
+            try:
+                found = read_jpeg_date(path)
+            except OSError:
+                return None
+        if found is None:
+            return ""
+        return _format_captured(found)
+
+    def _fill_missing_capture_times(self, connection: sqlite3.Connection) -> None:
+        """Fill capture times left empty by an earlier scan."""
+        rows = connection.execute(
+            "SELECT relative_path FROM files WHERE captured IS NULL"
+        ).fetchall()
+        total = len(rows)
+        if total == 0:
+            return
+        if self._on_dates is not None:
+            self._on_dates(0, total)
+        for done, (relative_path,) in enumerate(rows, start=1):
+            relative = Path(relative_path)
+            stored = self._lookup_captured(relative.parent, relative.name, self.library_root / relative)
+            if stored is not None:
+                connection.execute(
+                    "UPDATE files SET captured = ? WHERE relative_path = ?",
+                    (stored, relative_path),
+                )
+            if self._on_dates is not None:
+                self._on_dates(done, total)
         connection.commit()
 
     def files(self) -> list[IndexedFile]:
