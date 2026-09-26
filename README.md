@@ -1,10 +1,10 @@
 # glocaltakeout
 
-`glocaltakeout` is a backup tool and a continuation for the users of discontinued [gphotos-sync](https://github.com/gilesknap/gphotos-sync). It copies photos and videos from a Google Takeout export into a library folder. The folder can be an existing `gphotos-sync` tree, or an empty directory. An empty directory has no earlier files to compare, so every Takeout file is copied and `photos/` and `albums/` are created in the gphotos-sync layout. The `gphotos-sync` database `gphotos.sqlite` is not required, but if it exists it will be used to speed up the resolving of which files are already present from previous backups.
+`glocaltakeout` is a utility for processing Google Photos archives created by [Google Takeout](https://takeout.google.com). The rationale is to enable you to unpack your Google Photos Takeout archive content to a local USB drive or similar, so that it is safe for you to delete the photos from Google and free up storage space.  It is also compatible with the discontinued [gphotos-sync](https://github.com/gilesknap/gphotos-sync) in that it can read its sync database. It copies photos and videos from a Google Takeout export into a library folder. The folder can be an existing `gphotos-sync` tree, or an empty directory. An empty directory has no earlier files to compare, so every Takeout file is copied and `photos/` and `albums/` folders with yearly and monthly subfolders are created in the gphotos-sync layout. The `gphotos-sync` database `gphotos.sqlite` is not required, but if it exists it will be used to speed up the resolving of which files are already present from previous backups.
 
 ## Installation
 
-Python 3.10 or newer is required. This project is developed and tested on 3.10. macOS does not include Python; install it from Homebrew or python.org.
+Python 3.8 or newer is required, including the 3.8.20 build available on Raspbian Buster. This project is developed on 3.10. macOS does not include Python; install it from Homebrew or python.org.
 
 From a checkout of this repository:
 
@@ -22,6 +22,7 @@ On Windows, activate with `.venv\Scripts\activate` instead of `source`. The `[de
 glocaltakeout SOURCE [SOURCE ...] --library DIR [--apply] [--report FILE]
     [--gphotos-db FILE] [--case-insensitive | --no-case-insensitive]
     [--normalize-filenames nfc]
+glocaltakeout --link-only --library DIR [--report FILE]
 ```
 
 `SOURCE` is a Takeout zip or an extracted Takeout directory. Pass the first zip only. A name ending in `-001.zip` also includes `-002.zip` through `-999.zip` in that same directory, for every part that exists.
@@ -30,7 +31,9 @@ glocaltakeout SOURCE [SOURCE ...] --library DIR [--apply] [--report FILE]
 
 `--apply` copies new files and updates album links. Without it, the run only writes the report and refreshes `glocaltakeout.sqlite`. Existing photos are not changed.
 
-`--report` sets the JSON report path. The default is `glocaltakeout-report.json` in the current directory.
+`--report` sets the JSON report path. The default is `glocaltakeout-report.json` in the current directory. The report records the library folder, the Takeout sources, and the options used for that run.
+
+`--link-only` creates the album symlinks and does not read the Takeout archives or copy photos. Without `--report` it reads `albums-pending.json` in the library. With `--report` it reads that report instead, and does not modify the report. Targets in `albums-pending.json` are relative to the library. An older pending file whose targets are absolute paths is still accepted. An older report whose `pending_albums` list is only link paths is still accepted, using each decision's `path` as the photo.
 
 `--gphotos-db` points at `gphotos.sqlite`. The default is that file in the library root, and it is read only. The run continues if the file is missing.
 
@@ -45,8 +48,8 @@ gphotos-sync downloaded files through the Google Photos Library API. Google has 
 For each unique file in the Takeout:
 
 1. If those exact bytes are already under `photos/`, nothing is copied. Album links use that existing path.
-2. If the same capture is already there (original filename, ignoring a ` (n)` suffix, and taken time within two minutes) but the bytes differ, the old file stays and the Takeout file is written beside it as the next `name (n).ext` in that same folder.
-3. Otherwise the file is written to `photos/YYYY/MM/` from the taken time. A filename clash with a different capture also uses the next ` (n)` suffix. The report separates these two cases.
+2. If the same capture is already there (original filename, ignoring a  `(n)` suffix, and taken time within two minutes) but the bytes differ, the old file stays and the Takeout file is written beside it as the next `name (n).ext` in that same folder.
+3. Otherwise the file is written to `photos/YYYY/MM/` from the taken time. A filename clash with a different capture also uses the next  `(n)` suffix. The report separates these two cases.
 
 Takeout repeats each file in a year folder and in every album. The tool keeps one copy of each byte sequence and prefers the year-folder file when it has to choose which zip member to read.
 
@@ -71,7 +74,7 @@ Folder names are not translated. The tool reads the archive shape:
 - Archive and trash come from sidecar JSON: `"archived": true` and `"trashed": true`. Archive files are copied into `photos/YYYY/MM/` but do not become an album. Trash files are not copied.
 - Every other folder is a user album. `metadata.json` supplies the title when the folder name was truncated.
 
-Sidecar names can be `name.jpg.json`, `name.jpg.supplemental-metadata.json`, a truncated supplemental suffix, a ` (n)` or `(n)` duplicate marker, or the JSON of the original file for an `-edited` copy. Media and JSON may sit in different zip parts. All parts are indexed before anything is copied.
+Sidecar names can be `name.jpg.json`, `name.jpg.supplemental-metadata.json`, a truncated supplemental suffix, a  `(n)` or `(n)` duplicate marker, or the JSON of the original file for an `-edited` copy. Media and JSON may sit in different zip parts. All parts are indexed before anything is copied.
 
 ## Index on the library drive
 
@@ -106,11 +109,13 @@ sudo mkdir -p /mnt/drivename
 sudo mount -t drvfs 'Z:' /mnt/drivename
 ```
 
+
+
 ## macOS
 
 The defaults stay as they are for Windows, WSL, and Linux. On a Mac, pass the options that match the disk you are writing to.
 
-Install Python 3.10 or newer from Homebrew or python.org. macOS does not provide it. In Terminal:
+Install Python 3.8 or newer from Homebrew or python.org. macOS does not provide it. In Terminal:
 
 ```bash
 python3 -m venv .venv

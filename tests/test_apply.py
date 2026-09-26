@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 import sqlite3
 from datetime import datetime
@@ -5,7 +7,8 @@ from pathlib import Path
 
 import piexif
 
-from glocaltakeout.albums import link_album_file
+from glocaltakeout.albums import link_album_file, replay_album_links, write_pending
+from glocaltakeout.cli import main
 from glocaltakeout.metadata import apply_new_file_metadata, read_jpeg_date
 from glocaltakeout.pipeline import run
 from glocaltakeout.takeout import TakeoutItem
@@ -162,6 +165,9 @@ def test_dry_run_does_not_copy(tmp_path: Path):
     assert not (library / "photos").exists() or not any((library / "photos").rglob("*.jpg"))
     body = json.loads(report.read_text(encoding="utf-8"))
     assert body["apply"] is False
+    assert body["library"] == str(library)
+    assert body["sources"] == [str(archive)]
+    assert body["options"]["normalize_filenames"] is None
     assert body["decisions"][0]["action"] == "new_file"
     assert (library / "glocaltakeout.sqlite").exists()
 
@@ -219,3 +225,70 @@ def test_pending_list_when_symlink_fails(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(Path, "symlink_to", fail_symlink)
     link = link_album_file(library, "Holiday", datetime(2024, 6, 1), target, apply=True)
     assert link.pending is True
+    written = write_pending(library, [link])
+    assert written is not None
+    saved = json.loads(written.read_text(encoding="utf-8"))
+    assert saved[0]["target"] == "photos/2024/06/a.jpg"
+    assert not Path(saved[0]["target"]).is_absolute()
+
+
+def test_link_only_reads_an_old_absolute_pending_file(tmp_path: Path):
+    library = tmp_path / "library"
+    photo = library / "photos" / "2026" / "08" / "IMG.jpg"
+    photo.parent.mkdir(parents=True)
+    photo.write_bytes(JPEG)
+    pending = library / "albums-pending.json"
+    pending.write_text(
+        json.dumps(
+            [
+                {
+                    "album": "asuntomessut 2026 ja remontti-ideat",
+                    "link": "albums/2026/08 asuntomessut 2026 ja remontti-ideat/IMG.jpg",
+                    "target": "/mnt/verkkolevy/jari-google-photos/photos/2026/08/IMG.jpg",
+                }
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    created, still = replay_album_links(library)
+    assert created == 1
+    assert still == []
+    assert not pending.exists()
+    link = library / "albums" / "2026" / "08 asuntomessut 2026 ja remontti-ideat" / "IMG.jpg"
+    assert link.is_symlink()
+    assert link.resolve() == photo.resolve()
+
+
+def test_link_only_reads_an_old_report_without_changing_it(tmp_path: Path):
+    library = tmp_path / "library"
+    photo = library / "photos" / "2026" / "08" / "IMG.jpg"
+    photo.parent.mkdir(parents=True)
+    photo.write_bytes(JPEG)
+    report = tmp_path / "dry-run-report.json"
+    original = json.dumps(
+        {
+            "apply": True,
+            "decisions": [
+                {
+                    "filename": "IMG.jpg",
+                    "action": "new_file",
+                    "path": "photos/2026/08/IMG.jpg",
+                    "reason": "not in the library",
+                    "albums": ["asuntomessut 2026 ja remontti-ideat"],
+                }
+            ],
+            "warnings": [
+                "This drive cannot create symlinks; links were listed in albums-pending.json"
+            ],
+            "pending_albums": ["albums/2026/08 asuntomessut 2026 ja remontti-ideat/IMG.jpg"],
+        },
+        indent=2,
+    )
+    report.write_text(original + "\n", encoding="utf-8")
+    code = main(["--link-only", "--library", str(library), "--report", str(report)])
+    assert code == 0
+    assert report.read_text(encoding="utf-8") == original + "\n"
+    link = library / "albums" / "2026" / "08 asuntomessut 2026 ja remontti-ideat" / "IMG.jpg"
+    assert link.is_symlink()
+    assert link.resolve() == photo.resolve()

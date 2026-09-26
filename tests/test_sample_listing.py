@@ -1,5 +1,7 @@
 """Read-only check against the local Takeout sample, when it is present."""
 
+from __future__ import annotations
+
 import json
 import zipfile
 from pathlib import Path

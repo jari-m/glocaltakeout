@@ -13,7 +13,7 @@ from typing import Callable, Iterator
 TOTAL_STEPS = 6
 ProgressFn = Callable[[int, int, str, str], None]
 
-from glocaltakeout.albums import AlbumLink, link_album_file, write_pending
+from glocaltakeout.albums import AlbumLink, library_relative, link_album_file, write_pending
 from glocaltakeout.index import DestinationIndex, GphotosHint, IndexedFile, hash_file
 from glocaltakeout.layout import canonical_name, split_duplicate_name
 from glocaltakeout.match import Placement, place_item
@@ -108,6 +108,7 @@ def run(
         shown[key] = text
         progress(step, TOTAL_STEPS, label, text)
 
+    requested_sources = list(sources)
     sources = expand_takeout_parts(sources)
     note(1, "Reading Takeout", 0, None)
 
@@ -250,9 +251,23 @@ def run(
 
     report = {
         "apply": apply,
+        "library": str(library_root),
+        "sources": [str(path) for path in requested_sources],
+        "options": {
+            "case_insensitive": case_insensitive,
+            "normalize_filenames": normalize_filenames,
+            "gphotos_db": None if gphotos_db is None else str(gphotos_db),
+        },
         "decisions": decisions,
         "warnings": warnings,
-        "pending_albums": [item.relative_link.as_posix() for item in pending],
+        "pending_albums": [
+            {
+                "album": item.album,
+                "link": item.relative_link.as_posix(),
+                "target": library_relative(item.target, library_root).as_posix(),
+            }
+            for item in pending
+        ],
     }
     destination_report = report_path or Path("glocaltakeout-report.json")
     note(6, "Saving report and index", 0, 2)
