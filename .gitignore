@@ -9,4 +9,5 @@ htmlcov/
 glocaltakeout.sqlite
 *.sqlite-journal
 report.json
+*-report.json
 albums-pending.json
