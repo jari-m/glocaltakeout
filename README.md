@@ -14,7 +14,7 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 ```
 
-On Windows, activate with `.venv\Scripts\activate` instead of `source`. The `[dev]` extra installs pytest. Use `pip install -e .` when you do not need the tests. `pip install -r requirements.txt` installs the runtime dependency only, without the `glocaltakeout` command.
+On Windows, activate with `.venv\Scripts\activate` instead of `source`. The `[dev]` extra installs pytest. Use `pip install -e .` when you do not need the tests. Dependencies are declared in `pyproject.toml`.
 
 ## Options
 
