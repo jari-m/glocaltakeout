@@ -1,8 +1,42 @@
 # glocaltakeout
 
-`glocaltakeout` copies photos and videos from a Google Takeout export into a library folder. The folder can be an existing [gphotos-sync](https://github.com/gilesknap/gphotos-sync) tree, or an empty directory. An empty directory has no earlier files to compare, so every Takeout file is copied and `photos/` and `albums/` are created in the gphotos-sync layout. `gphotos.sqlite` is not required.
+`glocaltakeout` is a backup tool and a continuation for the users of discontinued [gphotos-sync](https://github.com/gilesknap/gphotos-sync). It copies photos and videos from a Google Takeout export into a library folder. The folder can be an existing `gphotos-sync` tree, or an empty directory. An empty directory has no earlier files to compare, so every Takeout file is copied and `photos/` and `albums/` are created in the gphotos-sync layout. The `gphotos-sync` database `gphotos.sqlite` is not required, but if it exists it will be used to speed up the resolving of which files are already present from previous backups.
 
-Requires Python 3.10 or newer. Developed and tested on 3.10.
+## Installation
+
+Python 3.10 or newer is required. This project is developed and tested on 3.10. macOS does not include Python; install it from Homebrew or python.org.
+
+From a checkout of this repository:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+```
+
+On Windows, activate with `.venv\Scripts\activate` instead of `source`. The `[dev]` extra installs pytest. Use `pip install -e .` when you do not need the tests. `pip install -r requirements.txt` installs the runtime dependency only, without the `glocaltakeout` command.
+
+## Options
+
+```text
+glocaltakeout SOURCE [SOURCE ...] --library DIR [--apply] [--report FILE]
+    [--gphotos-db FILE] [--case-insensitive | --no-case-insensitive]
+    [--normalize-filenames nfc]
+```
+
+`SOURCE` is a Takeout zip or an extracted Takeout directory. Pass the first zip only. A name ending in `-001.zip` also includes `-002.zip` through `-999.zip` in that same directory, for every part that exists.
+
+`--library` is the folder that should contain `photos/` and `albums/`. It is created if needed. It can be empty or an existing gphotos-sync tree.
+
+`--apply` copies new files and updates album links. Without it, the run only writes the report and refreshes `glocaltakeout.sqlite`. Existing photos are not changed.
+
+`--report` sets the JSON report path. The default is `glocaltakeout-report.json` in the current directory.
+
+`--gphotos-db` points at `gphotos.sqlite`. The default is that file in the library root, and it is read only. The run continues if the file is missing.
+
+`--case-insensitive` treats `IMG.jpg` and `img.jpg` as the same name. This is the default on Windows. `--no-case-insensitive` forces a case-sensitive comparison. On macOS, pass `--case-insensitive` for an internal or exFAT disk, and leave it off for a case-sensitive network share.
+
+`--normalize-filenames nfc` compares and writes filenames in composed Unicode. It is off unless you set it. Pass it on macOS.
 
 ## What it does
 
