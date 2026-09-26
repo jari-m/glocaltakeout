@@ -1,6 +1,6 @@
 # glocaltakeout
 
-`glocaltakeout` is a utility for processing Google Photos archives created by [Google Takeout](https://takeout.google.com). The rationale is to enable you to unpack your Google Photos Takeout archive content to a local USB drive or similar, so that it is safe for you to delete the photos from Google and free up storage space.  It is also compatible with the discontinued [gphotos-sync](https://github.com/gilesknap/gphotos-sync) in that it can read its sync database. It copies photos and videos from a Google Takeout export into a library folder. The folder can be an existing `gphotos-sync` tree, or an empty directory. An empty directory has no earlier files to compare, so every Takeout file is copied and `photos/` and `albums/` folders with yearly and monthly subfolders are created in the gphotos-sync layout. The `gphotos-sync` database `gphotos.sqlite` is not required, but if it exists it will be used to speed up the resolving of which files are already present from previous backups.
+`glocaltakeout` is a utility for processing Google Photos archives created by [Google Takeout](https://takeout.google.com). The rationale is to enable you to unpack your Google Photos Takeout archive content to a local USB drive or similar, so that it is safe for you to delete the photos from Google and free up storage space. When you then repeat the Takeout process some months later, `glocaltakeout` knows which files you have already downloaded and will ignore those. It is also compatible with the discontinued [gphotos-sync](https://github.com/gilesknap/gphotos-sync) in that it can read its sync database. It copies photos and videos from a Google Takeout export into a library folder. The folder can be an existing `gphotos-sync` tree, or an empty directory. An empty directory has no earlier files to compare, so every Takeout file is copied and `photos/` and `albums/` folders with yearly and monthly subfolders are created in the gphotos-sync layout. The `gphotos-sync` database `gphotos.sqlite` is not required, but if it exists it will be used to speed up the resolving of which files are already present from previous backups.
 
 ## Installation
 
@@ -23,6 +23,11 @@ glocaltakeout SOURCE [SOURCE ...] --library DIR [--apply] [--report FILE]
     [--gphotos-db FILE] [--case-insensitive | --no-case-insensitive]
     [--normalize-filenames nfc]
 glocaltakeout --link-only --library DIR [--report FILE]
+```
+Example: 
+```bash
+glocaltakeout takeout-20260926T113224Z-1-001.zip --library /media/USBHDD/my-google-photos \
+  --apply --case-insensitive
 ```
 
 `SOURCE` is a Takeout zip or an extracted Takeout directory. Pass the first zip only. A name ending in `-001.zip` also includes `-002.zip` through `-999.zip` in that same directory, for every part that exists.
