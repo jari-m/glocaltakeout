@@ -170,6 +170,7 @@ def run(
     decisions: list[dict] = []
     warnings: list[str] = []
     warned_symlink = False
+    warned_mtime = False
 
     placements: list[tuple[TakeoutItem, Placement]] = []
     item_total = len(items)
@@ -200,7 +201,14 @@ def run(
             else:
                 destination = library_root / placement.relative_path
                 _copy_member(item, destination)
-                apply_new_file_metadata(destination, item)
+                stamped = apply_new_file_metadata(destination, item)
+                if stamped is False and not warned_mtime:
+                    message = (
+                        "This drive rejected file timestamps; capture times are in the file metadata"
+                    )
+                    warnings.append(message)
+                    warned_mtime = True
+                    yield Progress("warning", message)
                 stored = hash_file(destination)
                 index.connection.execute(
                     "UPDATE files SET sha256 = ?, size = ? WHERE relative_path = ?",

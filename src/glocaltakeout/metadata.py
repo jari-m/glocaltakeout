@@ -7,6 +7,7 @@ types get a JSON sidecar, because writing those formats needs ExifTool.
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime
 from pathlib import Path
 
@@ -48,8 +49,14 @@ def _exif_bytes(item: TakeoutItem) -> bytes:
     return piexif.dump({"0th": zeroth, "Exif": exif, "GPS": gps})
 
 
-def apply_new_file_metadata(path: Path, item: TakeoutItem) -> None:
-    """Set mtime, and embed metadata, on a file this run created."""
+def apply_new_file_metadata(path: Path, item: TakeoutItem) -> bool | None:
+    """Embed metadata on a file this run created.
+
+    Returns True when the capture time was also stored as the file's
+    modification time, False when the drive rejected that update, and None
+    when the item has no capture time. The time remains in the JPEG EXIF or
+    the JSON sidecar either way.
+    """
     if path.suffix.lower() in _JPEG:
         piexif.insert(_exif_bytes(item), str(path))
     else:
@@ -63,12 +70,13 @@ def apply_new_file_metadata(path: Path, item: TakeoutItem) -> None:
             "altitude": item.altitude,
         }
         sidecar.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-    if item.taken is not None:
-        stamp = item.taken.timestamp()
-        path.touch()
-        import os
-
-        os.utime(path, (stamp, stamp))
+    if item.taken is None:
+        return None
+    try:
+        os.utime(path, (item.taken.timestamp(), item.taken.timestamp()))
+    except PermissionError:
+        return False
+    return True
 
 
 def read_jpeg_date(path: Path) -> datetime | None:

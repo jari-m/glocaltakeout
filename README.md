@@ -50,7 +50,7 @@ For each unique file in the Takeout:
 
 Takeout repeats each file in a year folder and in every album. The tool keeps one copy of each byte sequence and prefers the year-folder file when it has to choose which zip member to read.
 
-New copies get their taken time as the file modification time. JPEG files also get the taken time, GPS, and description written into EXIF. Video, HEIC, and other non-JPEG files get a JSON sidecar instead. Files that were already in the library are not modified.
+New copies get their taken time as the file modification time when the drive allows it. JPEG files also get the taken time, GPS, and description written into EXIF. Video, HEIC, and other non-JPEG files get a JSON sidecar instead. If the drive rejects the timestamp, the run warns once and keeps the time in that EXIF or sidecar. Files that were already in the library are not modified.
 
 ## Folder layout
 

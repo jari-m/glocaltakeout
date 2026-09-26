@@ -49,6 +49,29 @@ def test_jpeg_metadata_is_written_only_on_the_new_file(tmp_path: Path):
     assert new_file.stat().st_mtime == datetime(2024, 6, 1, 15, 30, 0).timestamp()
 
 
+def test_rejected_mtime_keeps_the_embedded_date(tmp_path: Path, monkeypatch):
+    new_file = tmp_path / "new.jpg"
+    new_file.write_bytes(JPEG)
+    item = TakeoutItem(
+        filename="new.jpg",
+        sha256="abc",
+        size=len(JPEG),
+        taken=datetime(2024, 6, 1, 15, 30, 0),
+        description="harbor",
+        latitude=None,
+        longitude=None,
+        altitude=None,
+        source=None,  # type: ignore[arg-type]
+    )
+
+    def reject_utime(path, times):
+        raise PermissionError(1, "Operation not permitted")
+
+    monkeypatch.setattr("glocaltakeout.metadata.os.utime", reject_utime)
+    assert apply_new_file_metadata(new_file, item) is False
+    assert read_jpeg_date(new_file) == datetime(2024, 6, 1, 15, 30, 0)
+
+
 def test_non_jpeg_gets_a_sidecar(tmp_path: Path):
     video = tmp_path / "clip.mp4"
     video.write_bytes(b"not-a-real-video")
