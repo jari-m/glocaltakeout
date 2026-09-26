@@ -8,7 +8,10 @@ import shutil
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Iterator
+from typing import Callable, Iterator
+
+TOTAL_STEPS = 6
+ProgressFn = Callable[[int, int, str, str], None]
 
 from glocaltakeout.albums import AlbumLink, link_album_file, write_pending
 from glocaltakeout.index import DestinationIndex, GphotosHint, IndexedFile, hash_file
@@ -65,6 +68,7 @@ def run(
     gphotos_db: Path | None = None,
     case_insensitive: bool | None = None,
     normalize_filenames: str | None = None,
+    progress: ProgressFn | None = None,
 ) -> Iterator[Progress]:
     """Index Takeout and the library, then copy and link when ``apply`` is set.
 
@@ -74,15 +78,73 @@ def run(
     if case_insensitive is None:
         case_insensitive = os.name == "nt"
     normalize_nfc = normalize_filenames == "nfc"
+
+    shown: dict[tuple[int, str], str] = {}
+
+    def note(
+        step: int,
+        label: str,
+        current: int,
+        total: int | None,
+        *,
+        as_count: bool = False,
+        every: int = 1,
+    ) -> None:
+        if progress is None:
+            return
+        if as_count and total is None:
+            if every > 1 and current not in (0, 1) and current % every != 0:
+                return
+            text = f"{current} files"
+        elif total is None or total <= 0:
+            text = "0%" if current == 0 else "100%"
+        elif current >= total:
+            text = "100%"
+        else:
+            text = f"{min(99, current * 100 // total)}%"
+        key = (step, label)
+        if shown.get(key) == text:
+            return
+        shown[key] = text
+        progress(step, TOTAL_STEPS, label, text)
+
     sources = expand_takeout_parts(sources)
-    if len(sources) > 1:
-        yield Progress("scanned", f"Reading {len(sources)} Takeout parts")
-    items = load_takeout(sources)
+    note(1, "Reading Takeout", 0, None)
+
+    def on_takeout_hash(current: int, total: int) -> None:
+        note(1, "Reading Takeout", current, total)
+
+    items = load_takeout(sources, on_hash=on_takeout_hash)
+    note(1, "Reading Takeout", len(items), len(items))
     yield Progress("scanned", f"Indexed {len(items)} unique Takeout files")
 
     hint_path = gphotos_db if gphotos_db is not None else library_root / "gphotos.sqlite"
-    index = DestinationIndex(library_root, GphotosHint(hint_path if hint_path.exists() else None))
-    index.ensure_hashes_for_sizes({item.size for item in items})
+    hint = GphotosHint(hint_path if hint_path.exists() else None)
+    scanned = 0
+    # SyncFiles is one row per library file, so its count is a close stand-in
+    # for the photos/ walk before that walk has finished.
+    scan_estimate = hint.file_count
+
+    counting = scan_estimate is None
+
+    def on_scan(seen: int) -> None:
+        nonlocal scanned
+        scanned = seen
+        note(2, "Scanning library", seen, scan_estimate, as_count=counting, every=50)
+
+    note(2, "Scanning library", 0, scan_estimate, as_count=counting)
+    index = DestinationIndex(library_root, hint, on_scan=on_scan)
+    if scanned:
+        note(2, "Scanning library", scanned, scanned)
+    else:
+        note(2, "Scanning library", 1, 1)
+    note(3, "Hashing library files", 0, None)
+
+    def on_library_hash(current: int, total: int) -> None:
+        note(3, "Hashing library files", current, total)
+
+    hashed = index.ensure_hashes_for_sizes({item.size for item in items}, on_hash=on_library_hash)
+    note(3, "Hashing library files", hashed, hashed)
 
     phantom: list[str] = []
     pending: list[AlbumLink] = []
@@ -90,13 +152,18 @@ def run(
     warnings: list[str] = []
     warned_symlink = False
 
-    for item in items:
+    placements: list[tuple[TakeoutItem, Placement]] = []
+    item_total = len(items)
+    match_label = "Copying files" if apply else "Matching files"
+    note(4, match_label, 0, item_total)
+    for number, item in enumerate(items, start=1):
         if normalize_nfc:
             item.filename = canonical_name(item.filename, normalize_nfc=True)
             item.albums = [canonical_name(title, normalize_nfc=True) for title in item.albums]
         placement = place_item(
             item, index, case_insensitive=case_insensitive, normalize_nfc=normalize_nfc
         )
+        placements.append((item, placement))
         record = {
             "filename": item.filename,
             "action": placement.action,
@@ -122,10 +189,16 @@ def run(
                 )
                 index.connection.commit()
                 yield Progress("copied", destination.as_posix())
+        note(4, match_label, number, item_total)
 
+    link_total = sum(len(item.albums) for item, _placement in placements)
+    note(5, "Linking albums", 0, link_total)
+    linked = 0
+    for item, placement in placements:
         target = library_root / placement.relative_path
         newest = item.taken or datetime(1970, 1, 1)
         for title in item.albums:
+            linked += 1
             link = link_album_file(
                 library_root, title, newest, target, apply=apply, normalize_nfc=normalize_nfc
             )
@@ -138,6 +211,7 @@ def run(
                     yield Progress("warning", message)
             elif apply and link.created:
                 yield Progress("linked", link.relative_link.as_posix())
+            note(5, "Linking albums", linked, link_total)
 
     if apply and pending:
         write_pending(library_root, pending)
@@ -154,7 +228,10 @@ def run(
         "pending_albums": [item.relative_link.as_posix() for item in pending],
     }
     destination_report = report_path or Path("glocaltakeout-report.json")
+    note(6, "Saving report and index", 0, 2)
     destination_report.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    note(6, "Saving report and index", 1, 2)
     index.publish()
+    note(6, "Saving report and index", 2, 2)
     yield Progress("scanned", f"Wrote report {destination_report}")
     return RunResult(decisions, warnings, destination_report, index.rebuilt)  # type: ignore[return-value]

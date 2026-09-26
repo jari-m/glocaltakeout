@@ -71,7 +71,8 @@ def test_non_jpeg_gets_a_sidecar(tmp_path: Path):
 def test_dry_run_does_not_copy(tmp_path: Path):
     archive = tmp_path / "takeout.zip"
     library = tmp_path / "library"
-    library.mkdir()
+    (library / "photos" / "2020" / "01").mkdir(parents=True)
+    (library / "photos" / "2020" / "01" / "already.png").write_bytes(b"png")
     import zipfile
 
     with zipfile.ZipFile(archive, "w") as handle:
@@ -88,7 +89,15 @@ def test_dry_run_does_not_copy(tmp_path: Path):
             ),
         )
     report = tmp_path / "report.json"
-    events = list(run([archive], library, apply=False, report_path=report))
+    notes: list[tuple[int, int, str, str]] = []
+
+    def progress(step: int, steps: int, label: str, detail: str) -> None:
+        notes.append((step, steps, label, detail))
+
+    events = list(run([archive], library, apply=False, report_path=report, progress=progress))
+    assert [item[0] for item in notes if item[2] == "Saving report and index"][-1:] == [6]
+    assert all(item[1] == 6 for item in notes)
+    assert any(item[3] == "1 files" for item in notes)
     assert any(event.kind == "decided" for event in events)
     assert not (library / "photos").exists() or not any((library / "photos").rglob("*.jpg"))
     body = json.loads(report.read_text(encoding="utf-8"))

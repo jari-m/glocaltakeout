@@ -57,6 +57,11 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def show_progress(step: int, steps: int, label: str, detail: str) -> None:
+    """Print one progress line. ``detail`` is a percentage or a running file count."""
+    print(f"{step}/{steps} {label}: {detail}", flush=True)
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     for event in run(
@@ -67,8 +72,10 @@ def main(argv: list[str] | None = None) -> int:
         gphotos_db=args.gphotos_db,
         case_insensitive=args.case_insensitive,
         normalize_filenames=args.normalize_filenames,
+        progress=show_progress,
     ):
-        print(f"{event.kind}: {event.message}")
+        if event.kind == "warning":
+            print(f"warning: {event.message}", flush=True)
     return 0
 
 

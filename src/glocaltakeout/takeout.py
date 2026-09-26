@@ -301,7 +301,7 @@ class TakeoutLibrary:
         self.containers = containers
         self.items: list[TakeoutItem] = []
 
-    def index(self) -> list[TakeoutItem]:
+    def index(self, on_hash=None) -> list[TakeoutItem]:
         listed = list(_iter_members(self.containers))
         root = discover_library_root(name for _, name, _ in listed)
         prefix = f"{root}/" if root else ""
@@ -384,7 +384,7 @@ class TakeoutLibrary:
                     )
                 )
 
-        self.items = _merge_occurrences(occurrences)
+        self.items = _merge_occurrences(occurrences, on_hash=on_hash)
         return self.items
 
 
@@ -405,14 +405,22 @@ def _role_rank(role: str) -> int:
     return {"year": 0, "archive": 1, "album": 2, "trash": 3}.get(role, 9)
 
 
-def _merge_occurrences(occurrences: list[MediaOccurrence]) -> list[TakeoutItem]:
+def _merge_occurrences(occurrences: list[MediaOccurrence], on_hash=None) -> list[TakeoutItem]:
     groups: dict[str, list[MediaOccurrence]] = defaultdict(list)
     hashes: dict[int, str] = {}
+    to_hash: list[ArchiveMember] = []
     for occurrence in occurrences:
         identity = id(occurrence.member)
         if identity not in hashes:
-            hashes[identity] = _sha256(occurrence.member)
-        groups[hashes[identity]].append(occurrence)
+            hashes[identity] = ""
+            to_hash.append(occurrence.member)
+    total = len(to_hash)
+    for number, member in enumerate(to_hash, start=1):
+        hashes[id(member)] = _sha256(member)
+        if on_hash is not None:
+            on_hash(number, total)
+    for occurrence in occurrences:
+        groups[hashes[id(occurrence.member)]].append(occurrence)
 
     items: list[TakeoutItem] = []
     for digest, group in groups.items():
@@ -491,9 +499,9 @@ def expand_takeout_parts(paths: list[Path]) -> list[Path]:
     return selected
 
 
-def load_takeout(paths: list[Path]) -> list[TakeoutItem]:
+def load_takeout(paths: list[Path], on_hash=None) -> list[TakeoutItem]:
     library = TakeoutLibrary(expand_takeout_parts(paths))
-    return library.index()
+    return library.index(on_hash=on_hash)
 
 
 def sha256_bytes(payload: bytes) -> str:

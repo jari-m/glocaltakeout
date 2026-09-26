@@ -81,6 +81,7 @@ class GphotosHint:
 
     def __init__(self, path: Path | None):
         self.by_path: dict[tuple[str, str], datetime] = {}
+        self.file_count: int | None = None
         if path is None or not path.exists():
             return
         local = Path(tempfile.mkdtemp(prefix="gphotos-hint-")) / "gphotos.sqlite"
@@ -103,6 +104,11 @@ class GphotosHint:
                 continue
             folder_text = "" if folder is None else str(folder).replace("\\", "/").strip("/")
             self.by_path[(folder_text, str(filename))] = captured
+        try:
+            counted = connection.execute("SELECT COUNT(*) FROM SyncFiles").fetchone()
+            self.file_count = int(counted[0]) if counted and counted[0] else None
+        except sqlite3.Error:
+            self.file_count = None
         connection.close()
 
     def captured(self, relative_dir: Path, filename: str) -> datetime | None:
@@ -113,10 +119,11 @@ class GphotosHint:
 class DestinationIndex:
     """Working copy of the library index. Call ``publish`` to store it on the share."""
 
-    def __init__(self, library_root: Path, hint: GphotosHint | None = None):
+    def __init__(self, library_root: Path, hint: GphotosHint | None = None, on_scan=None):
         self.library_root = library_root
         self.share_db = library_root / "glocaltakeout.sqlite"
         self.hint = hint or GphotosHint(None)
+        self._on_scan = on_scan
         self._temp = tempfile.TemporaryDirectory(prefix="glocaltakeout-index-")
         self.local_db = Path(self._temp.name) / "glocaltakeout.sqlite"
         self.rebuilt = False
@@ -142,9 +149,13 @@ class DestinationIndex:
         photos = self.library_root / PHOTOS_DIR
         if not photos.exists():
             return
+        seen = 0
         for path in photos.rglob("*"):
             if not path.is_file() or path.is_symlink() or not is_media_name(path.name):
                 continue
+            seen += 1
+            if self._on_scan is not None:
+                self._on_scan(seen)
             relative = path.relative_to(self.library_root)
             original, number = split_duplicate_name(path.name)
             captured = self.hint.captured(relative.parent, path.name)
@@ -207,10 +218,16 @@ class DestinationIndex:
             source_sha256=row[7],
         )
 
-    def ensure_hashes_for_sizes(self, sizes: set[int]) -> None:
-        """Hash on-disk files whose size matches a Takeout item and that are not hashed yet."""
+    def ensure_hashes_for_sizes(self, sizes: set[int], on_hash=None) -> int:
+        """Hash on-disk files whose size matches a Takeout item and that are not hashed yet.
+
+        Returns the number of files that needed a hash. ``on_hash`` receives
+        ``(current, total)`` after each one.
+        """
         if not sizes:
-            return
+            if on_hash is not None:
+                on_hash(0, 0)
+            return 0
         placeholders = ",".join("?" for _ in sizes)
         rows = self.connection.execute(
             f"""
@@ -219,16 +236,21 @@ class DestinationIndex:
             """,
             tuple(sizes),
         ).fetchall()
+        total = len(rows)
+        done = 0
         for (relative_path,) in rows:
             path = self.library_root / relative_path
-            if not path.is_file():
-                continue
-            digest = hash_file(path)
-            self.connection.execute(
-                "UPDATE files SET sha256 = ? WHERE relative_path = ?",
-                (digest, relative_path),
-            )
+            done += 1
+            if path.is_file():
+                digest = hash_file(path)
+                self.connection.execute(
+                    "UPDATE files SET sha256 = ? WHERE relative_path = ?",
+                    (digest, relative_path),
+                )
+            if on_hash is not None:
+                on_hash(done, total)
         self.connection.commit()
+        return total
 
     def names_in_dir(self, relative_dir: Path) -> list[str]:
         prefix = relative_dir.as_posix().rstrip("/") + "/"
@@ -269,6 +291,7 @@ class DestinationIndex:
         self.connection.close()
         self.library_root.mkdir(parents=True, exist_ok=True)
         temporary = self.share_db.with_name(self.share_db.name + ".writing")
-        shutil.copy2(self.local_db, temporary)
+        # copyfile, not copy2: a drvfs or Samba mount often rejects timestamp updates.
+        shutil.copyfile(self.local_db, temporary)
         temporary.replace(self.share_db)
         self._temp.cleanup()
