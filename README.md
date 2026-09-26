@@ -48,8 +48,8 @@ gphotos-sync downloaded files through the Google Photos Library API. Google has 
 For each unique file in the Takeout:
 
 1. If those exact bytes are already under `photos/`, nothing is copied. Album links use that existing path.
-2. If the same capture is already there (original filename, ignoring a  `(n)` suffix, and taken time within two minutes) but the bytes differ, the old file stays and the Takeout file is written beside it as the next `name (n).ext` in that same folder.
-3. Otherwise the file is written to `photos/YYYY/MM/` from the taken time. A filename clash with a different capture also uses the next  `(n)` suffix. The report separates these two cases.
+2. If the same capture is already there (original filename, ignoring a ` (n)` suffix, and taken time within two minutes) but the bytes differ, the old file stays and the Takeout file is written beside it as the next `name (n).ext` in that same folder.
+3. Otherwise the file is written to `photos/YYYY/MM/` from the taken time. A filename clash with a different capture also uses the next ` (n)` suffix. The report separates these two cases.
 
 Takeout repeats each file in a year folder and in every album. The tool keeps one copy of each byte sequence and prefers the year-folder file when it has to choose which zip member to read.
 
@@ -63,7 +63,7 @@ This matches the [gphotos-sync folder layout](https://github.com/gilesknap/gphot
 - A second file with the same original name in that folder is `name (n).ext`, with a space before the parenthesis.
 - Albums live in `albums/YYYY/MM Album title/` and point at the real files with relative symlinks.
 
-An existing album folder whose name ends with the Takeout album title is reused. Old symlinks are left in place, so an album can show both the earlier API copy and the Takeout original. If the drive cannot create a symlink, the photos are still copied and the missing links are listed in `albums-pending.json` at the library root.
+An existing album folder whose name ends with the Takeout album title is reused. Old symlinks are left in place, so an album can show both the earlier API copy and the Takeout original. If the drive cannot create a symlink, the photos are still copied and the missing links are listed in `albums-pending.json` at the library root. `--link-only` creates those links later, without reading the Takeout archives again.
 
 ## Takeout folder roles
 
@@ -74,7 +74,7 @@ Folder names are not translated. The tool reads the archive shape:
 - Archive and trash come from sidecar JSON: `"archived": true` and `"trashed": true`. Archive files are copied into `photos/YYYY/MM/` but do not become an album. Trash files are not copied.
 - Every other folder is a user album. `metadata.json` supplies the title when the folder name was truncated.
 
-Sidecar names can be `name.jpg.json`, `name.jpg.supplemental-metadata.json`, a truncated supplemental suffix, a  `(n)` or `(n)` duplicate marker, or the JSON of the original file for an `-edited` copy. Media and JSON may sit in different zip parts. All parts are indexed before anything is copied.
+Sidecar names can be `name.jpg.json`, `name.jpg.supplemental-metadata.json`, a truncated supplemental suffix, a ` (n)` or `(n)` duplicate marker, or the JSON of the original file for an `-edited` copy. Media and JSON may sit in different zip parts. All parts are indexed before anything is copied.
 
 ## Index on the library drive
 
@@ -102,14 +102,18 @@ ls /mnt/drivename
 sudo umount /mnt/drivename
 ```
 
-This mount is for reading and copying files. It does not create album symlinks. If `drvfs` cannot find `fileserver`, map the share to a drive letter in Windows first (`net use Z: \\fileserver\drivename`) and mount that letter instead:
+This mount is for reading and copying files. It does not create album symlinks. After the photos are copied, run `--link-only` on a machine that can create them, such as the Raspberry Pi with the disk attached:
+
+```bash
+glocaltakeout --link-only --library /path/to/library --report /path/to/glocaltakeout-report.json
+```
+
+If `drvfs` cannot find `fileserver`, map the share to a drive letter in Windows first (`net use Z: \\fileserver\drivename`) and mount that letter instead:
 
 ```bash
 sudo mkdir -p /mnt/drivename
 sudo mount -t drvfs 'Z:' /mnt/drivename
 ```
-
-
 
 ## macOS
 
@@ -129,7 +133,7 @@ A Finder-mounted share is a normal path under `/Volumes/`, for example `--librar
 
 `--normalize-filenames nfc` compares and writes filenames in composed Unicode (NFC). Pass it on macOS. A Mac stores names such as `café.jpg` in a decomposed form, and Takeout uses the composed form. With this flag the two match, and a new file is written in the composed form so Linux still sees the usual name. Leave it off on Windows, WSL, and Linux.
 
-Album symlinks work on a local Mac disk. Finder's SMB client does not create Unix symlinks on a Samba share, so a run from a Mac against the Raspberry share copies the photos and lists the album links in `albums-pending.json`. Create those links later from Linux.
+Album symlinks work on a local Mac disk. Finder's SMB client does not create Unix symlinks on a Samba share, so a run from a Mac against the Raspberry share copies the photos and lists the album links in `albums-pending.json`. Create those links later with `--link-only` on the Pi, or on another Linux machine that can write symlinks to that disk.
 
 ```bash
 glocaltakeout ~/Downloads/takeout-20260924T153744Z-1-001.zip \
@@ -142,7 +146,7 @@ Drop `--case-insensitive` when `--library` is the Raspberry share rather than a 
 
 ## Usage
 
-Install in a virtual environment, then run a dry run before copying:
+Install in a virtual environment, then point the command at the first Takeout zip and the library folder:
 
 ```bash
 python -m venv .venv
@@ -155,7 +159,15 @@ glocaltakeout /path/to/takeout-20260924T153744Z-1-001.zip --library /path/to/lib
 
 Pass the first zip only. A name ending in `-001.zip` also includes `-002.zip` through `-999.zip` in that same directory, for every part that is actually there. You do not list each piece. A folder of already extracted files can be passed instead of a zip. `--library` is the folder that should contain `photos/` and `albums/`; it is created if needed, and it does not have to contain a previous gphotos-sync download.
 
-Without `--apply` the run refreshes the index and writes a report, and it does not copy media or change `albums/`. `--report` sets the report path (default: `glocaltakeout-report.json` in the current directory). `--gphotos-db` points at `gphotos.sqlite` when it is not in the library root. `--case-insensitive` compares destination filenames without case; this is the default on Windows. `--normalize-filenames nfc` compares and writes filenames in composed Unicode; it is off unless you set it. See the macOS section for when to pass each one.
+The command without `--apply` refreshes the index and writes a report. It does not copy media or change `albums/`. `--apply` copies. A report-only run is not required before `--apply`. `--report` sets the report path (default: `glocaltakeout-report.json` in the current directory). `--gphotos-db` points at `gphotos.sqlite` when it is not in the library root. `--case-insensitive` compares destination filenames without case; this is the default on Windows. `--normalize-filenames nfc` compares and writes filenames in composed Unicode; it is off unless you set it. See the macOS section for when to pass each one.
+
+When the photos are already copied and only the album symlinks are missing, create them on a machine that can write symlinks to the disk:
+
+```bash
+glocaltakeout --link-only --library /path/to/library --report /path/to/glocaltakeout-report.json
+```
+
+`--link-only` does not read the Takeout archives. Without `--report` it uses `albums-pending.json` in the library. The report file is left unchanged.
 
 ## Tests
 
