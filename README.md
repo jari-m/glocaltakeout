@@ -33,7 +33,7 @@ glocaltakeout --link-only --library DIR [--report FILE]
 
 `--report` sets the JSON report path. The default is `glocaltakeout-report.json` in the current directory. The report records the library folder, the Takeout sources, and the options used for that run.
 
-`--link-only` creates the album symlinks and does not read the Takeout archives or copy photos. Without `--report` it reads `albums-pending.json` in the library. With `--report` it reads that report instead, and does not modify the report. Targets in `albums-pending.json` are relative to the library. An older pending file whose targets are absolute paths is still accepted. An older report whose `pending_albums` list is only link paths is still accepted, using each decision's `path` as the photo.
+`--link-only` creates the album symlinks and does not read the Takeout archives or copy photos. This can be useful if you ran glocaltakeout over a SAMBA mount and file links were not created. You can the update just the links by running this on the file hosting device, such as a Raspberry Pi. Without `--report` it reads `albums-pending.json` in the library. With `--report` it reads that report instead, and does not modify the report. Targets in `albums-pending.json` are relative to the library. An older pending file whose targets are absolute paths is still accepted. An older report whose `pending_albums` list is only link paths is still accepted, using each decision's `path` as the photo.
 
 `--gphotos-db` points at `gphotos.sqlite`. The default is that file in the library root, and it is read only. The run continues if the file is missing.
 
@@ -48,8 +48,8 @@ gphotos-sync downloaded files through the Google Photos Library API. Google has 
 For each unique file in the Takeout:
 
 1. If those exact bytes are already under `photos/`, nothing is copied. Album links use that existing path.
-2. If the same capture is already there (original filename, ignoring a ` (n)` suffix, and taken time within two minutes) but the bytes differ, the old file stays and the Takeout file is written beside it as the next `name (n).ext` in that same folder.
-3. Otherwise the file is written to `photos/YYYY/MM/` from the taken time. A filename clash with a different capture also uses the next ` (n)` suffix. The report separates these two cases.
+2. If the same capture is already there (original filename, ignoring a  `(n)` suffix, and taken time within two minutes) but the bytes differ, the old file stays and the Takeout file is written beside it as the next `name (n).ext` in that same folder.
+3. Otherwise the file is written to `photos/YYYY/MM/` from the taken time. A filename clash with a different capture also uses the next  `(n)` suffix. The report separates these two cases.
 
 Takeout repeats each file in a year folder and in every album. The tool keeps one copy of each byte sequence and prefers the year-folder file when it has to choose which zip member to read.
 
@@ -74,7 +74,7 @@ Folder names are not translated. The tool reads the archive shape:
 - Archive and trash come from sidecar JSON: `"archived": true` and `"trashed": true`. Archive files are copied into `photos/YYYY/MM/` but do not become an album. Trash files are not copied.
 - Every other folder is a user album. `metadata.json` supplies the title when the folder name was truncated.
 
-Sidecar names can be `name.jpg.json`, `name.jpg.supplemental-metadata.json`, a truncated supplemental suffix, a ` (n)` or `(n)` duplicate marker, or the JSON of the original file for an `-edited` copy. Media and JSON may sit in different zip parts. All parts are indexed before anything is copied.
+Sidecar names can be `name.jpg.json`, `name.jpg.supplemental-metadata.json`, a truncated supplemental suffix, a  `(n)` or `(n)` duplicate marker, or the JSON of the original file for an `-edited` copy. Media and JSON may sit in different zip parts. All parts are indexed before anything is copied.
 
 ## Index on the library drive
 
